@@ -1,0 +1,12 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: docify-backend
+
+docify:
+  ai:
+    api-key: ${AI_API_KEY:change-me}
+    model: ${AI_MODEL:gemini-2.5-flash}
+    base-url: ${AI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}

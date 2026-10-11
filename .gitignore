@@ -1,0 +1,29 @@
+# Root .gitignore for Docify
+
+# Dependencies
+node_modules/
+backend/target/
+extension/node_modules/
+extension/dist/
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# Logs and environment
+*.log
+.env
+.env.local
+.env.*.local
+docify.log
+
+# Java build artifacts
+backend/.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+*.war
