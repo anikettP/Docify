@@ -19,7 +19,7 @@ public class PromptTemplateService {
             "2. Preserve important source information.\n" +
             "3. Use only supported information.\n" +
             "4. Return ONLY a valid JSON object matching the requested schema.\n" +
-            "5. The JSON must contain: title (string), summary (string), sections (array of {heading: string, paragraphs: string[], bullets: string[]}), conclusion (string), references (array of {title: string, url: string}).\n",
+            "5. The JSON must contain: title (string), summary (string), sections (array of objects where each object is strictly: {\"heading\": string, \"paragraphs\": string[], \"bullets\": string[]}), conclusion (string), references (array of {\"title\": string, \"url\": string}). Never output plain strings inside the sections array.\n",
             request.getDocumentType(),
             request.getTitle(),
             request.getSourceUrl(),
