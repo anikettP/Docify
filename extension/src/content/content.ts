@@ -88,7 +88,7 @@ function extractCleanArticleContent(): { content: string; headings: string[] } {
   }
 
   return {
-    content: contentText.substring(0, 50000).trim(), // 50k character safety boundary
+    content: contentText.substring(0, 25000).trim(), // 25k character safety boundary
     headings: headings.slice(0, 15)
   };
 }

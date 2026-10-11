@@ -7,6 +7,11 @@ import org.springframework.stereotype.Service;
 public class PromptTemplateService {
 
     public String buildPrompt(GenerateRequest request) {
+        String content = request.getContent() != null ? request.getContent() : "";
+        if (content.length() > 25000) {
+            content = content.substring(0, 25000) + "\n\n[Content truncated for length...]";
+        }
+
         return String.format(
             "You are an expert document assistant. Your task is to generate a structured '%s' based on the following web content.\n\n" +
             "Source Title: %s\n" +
@@ -25,7 +30,7 @@ public class PromptTemplateService {
             request.getSourceUrl(),
             request.getLength(),
             request.getTone(),
-            request.getContent()
+            content
         );
     }
 

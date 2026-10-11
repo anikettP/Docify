@@ -97,6 +97,38 @@ export async function checkBackendHealth(baseUrl?: string): Promise<{ ok: boolea
 }
 
 /**
+ * Helper to call Direct Gemini API with multi-model fallback.
+ */
+async function callGeminiDirectWithFallback(apiKey: string, body: any): Promise<any> {
+  const models = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest'];
+  let lastErrText = '';
+
+  for (const model of models) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (res.ok) {
+        return await res.json();
+      }
+
+      lastErrText = await res.text();
+      console.warn(`Direct Gemini model ${model} responded with ${res.status}: ${lastErrText}`);
+      // If 503 or 429, fall through to next model
+    } catch (e: any) {
+      lastErrText = e.message || String(e);
+      console.warn(`Direct Gemini call failed on ${model}:`, e);
+    }
+  }
+
+  throw new Error(`Direct Gemini API calls failed across all models. Details: ${lastErrText}`);
+}
+
+/**
  * Generates a document using Spring Boot backend or Direct Gemini API fallback.
  */
 export async function generateDocument(payload: GeneratePayload): Promise<GeneratedDocumentResponse> {
@@ -108,7 +140,9 @@ export async function generateDocument(payload: GeneratePayload): Promise<Genera
   }
 
   // Attempt local Spring Boot backend call
-  let response: Response;
+  let response: Response | null = null;
+  let networkFailed = false;
+
   try {
     response = await fetch(`${config.backendUrl.replace(/\/$/, '')}/api/documents/generate`, {
       method: 'POST',
@@ -117,21 +151,24 @@ export async function generateDocument(payload: GeneratePayload): Promise<Genera
     });
   } catch (networkError: any) {
     console.warn('Network call to backend failed:', networkError);
+    networkFailed = true;
+  }
 
-    // Fallback: If user has a direct API key saved, seamlessly fall back
+  if (networkFailed || !response || !response.ok) {
+    // Check if we can seamlessly failover to direct Gemini API
     if (config.directApiKey) {
-      console.info('Falling back to direct Gemini API mode...');
+      console.info('Backend request unavailable or returned error; seamlessly falling back to Direct Gemini API...');
       return generateWithDirectGemini(payload, config.directApiKey);
     }
 
-    throw new Error(
-      `Cannot connect to Docify backend at ${config.backendUrl}. ` +
-      `Ensure Spring Boot is running and Chrome Local Network Access (LNA) is permitted, ` +
-      `or enter a Gemini API Key in 'LNA / Settings' to run in Zero-Backend mode.`
-    );
-  }
+    if (networkFailed || !response) {
+      throw new Error(
+        `Cannot connect to Docify backend at ${config.backendUrl}. ` +
+        `Ensure Spring Boot is running and Chrome Local Network Access (LNA) is permitted, ` +
+        `or enter a Gemini API Key in Settings to run in Zero-Backend mode.`
+      );
+    }
 
-  if (!response.ok) {
     let errMsg = `Backend error (${response.status})`;
     try {
       const errJson = await response.json();
@@ -156,7 +193,9 @@ export async function rewriteText(payload: RewritePayload): Promise<string> {
     return rewriteWithDirectGemini(payload, config.directApiKey);
   }
 
-  let response: Response;
+  let response: Response | null = null;
+  let networkFailed = false;
+
   try {
     response = await fetch(`${config.backendUrl.replace(/\/$/, '')}/api/documents/ai/rewrite`, {
       method: 'POST',
@@ -165,18 +204,21 @@ export async function rewriteText(payload: RewritePayload): Promise<string> {
     });
   } catch (networkError: any) {
     console.warn('Network call to backend failed:', networkError);
+    networkFailed = true;
+  }
 
+  if (networkFailed || !response || !response.ok) {
     if (config.directApiKey) {
       console.info('Falling back to direct Gemini API rewrite...');
       return rewriteWithDirectGemini(payload, config.directApiKey);
     }
 
-    throw new Error(
-      `Cannot connect to Docify backend for rewrite. Please check backend status or configure a Gemini API key in Settings.`
-    );
-  }
+    if (networkFailed || !response) {
+      throw new Error(
+        `Cannot connect to Docify backend for rewrite. Please check backend status or configure a Gemini API key in Settings.`
+      );
+    }
 
-  if (!response.ok) {
     let errMsg = `Backend rewrite error (${response.status})`;
     try {
       const errJson = await response.json();
@@ -208,7 +250,9 @@ export async function chatWithDocument(payload: ChatPayload): Promise<string> {
     return chatWithDirectGemini(payload, config.directApiKey);
   }
 
-  let response: Response;
+  let response: Response | null = null;
+  let networkFailed = false;
+
   try {
     response = await fetch(`${config.backendUrl.replace(/\/$/, '')}/api/documents/ai/chat`, {
       method: 'POST',
@@ -217,18 +261,21 @@ export async function chatWithDocument(payload: ChatPayload): Promise<string> {
     });
   } catch (networkError: any) {
     console.warn('Network call to backend failed:', networkError);
+    networkFailed = true;
+  }
 
+  if (networkFailed || !response || !response.ok) {
     if (config.directApiKey) {
       console.info('Falling back to direct Gemini API chat...');
       return chatWithDirectGemini(payload, config.directApiKey);
     }
 
-    throw new Error(
-      `Cannot connect to Docify backend for chat. Please check backend status or configure a Gemini API key in Settings.`
-    );
-  }
+    if (networkFailed || !response) {
+      throw new Error(
+        `Cannot connect to Docify backend for chat. Please check backend status or configure a Gemini API key in Settings.`
+      );
+    }
 
-  if (!response.ok) {
     let errMsg = `Backend chat error (${response.status})`;
     try {
       const errJson = await response.json();
@@ -256,7 +303,7 @@ Requested Length: ${payload.length}
 Requested Tone: ${payload.tone}
 
 Content:
-${payload.content}
+${payload.content.length > 25000 ? payload.content.substring(0, 25000) + '...' : payload.content}
 
 INSTRUCTIONS:
 1. Do not invent facts, statistics, or citations.
@@ -265,8 +312,6 @@ INSTRUCTIONS:
 4. Return ONLY a valid JSON object matching the requested schema.
 5. The JSON must contain: title (string), summary (string), sections (array of {heading: string, paragraphs: string[], bullets: string[]}), conclusion (string), references (array of {title: string, url: string}).`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-
   const body = {
     contents: [{ parts: [{ text: "You are a helpful assistant that outputs strictly in JSON.\n\n" + prompt }] }],
     generationConfig: {
@@ -274,24 +319,19 @@ INSTRUCTIONS:
     }
   };
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Direct Gemini API failed (${response.status}): ${errText}`);
-  }
-
-  const data = await response.json();
+  const data = await callGeminiDirectWithFallback(apiKey, body);
   const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!textContent) {
     throw new Error('Gemini API returned empty response');
   }
 
-  return JSON.parse(textContent);
+  // Strip code fences if present
+  let clean = textContent.trim();
+  if (clean.startsWith('```json')) clean = clean.substring(7);
+  else if (clean.startsWith('```')) clean = clean.substring(3);
+  if (clean.endsWith('```')) clean = clean.substring(0, clean.length() - 3);
+
+  return JSON.parse(clean.trim());
 }
 
 /**
@@ -313,8 +353,6 @@ RULES:
 - Do not include explanations or markdown formatting like \`\`\` unless returning a code block.
 - Preserve the core meaning but apply the requested style/operation.`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
@@ -322,17 +360,7 @@ RULES:
     }
   };
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    throw new Error(`Direct Gemini rewrite failed (${response.status})`);
-  }
-
-  const data = await response.json();
+  const data = await callGeminiDirectWithFallback(apiKey, body);
   return data.candidates?.[0]?.content?.parts?.[0]?.text || payload.selectedText;
 }
 
@@ -355,8 +383,6 @@ INSTRUCTIONS:
 - If the user asks for a new section, draft, or additions, format them cleanly using standard Markdown so it can be easily inserted into the document.
 - Cite claims based strictly on the document context.`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
@@ -364,17 +390,6 @@ INSTRUCTIONS:
     }
   };
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    throw new Error(`Direct Gemini chat failed (${response.status})`);
-  }
-
-  const data = await response.json();
+  const data = await callGeminiDirectWithFallback(apiKey, body);
   return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated.';
 }
-
