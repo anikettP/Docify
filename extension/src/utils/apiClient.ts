@@ -108,20 +108,15 @@ export async function generateDocument(payload: GeneratePayload): Promise<Genera
   }
 
   // Attempt local Spring Boot backend call
+  let response: Response;
   try {
-    const response = await fetch(`${config.backendUrl.replace(/\/$/, '')}/api/documents/generate`, {
+    response = await fetch(`${config.backendUrl.replace(/\/$/, '')}/api/documents/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-
-    if (!response.ok) {
-      throw new Error(`Backend error (${response.status}): ${response.statusText}`);
-    }
-
-    return await response.json();
-  } catch (backendError: any) {
-    console.warn('Backend call failed:', backendError);
+  } catch (networkError: any) {
+    console.warn('Network call to backend failed:', networkError);
 
     // Fallback: If user has a direct API key saved, seamlessly fall back
     if (config.directApiKey) {
@@ -129,13 +124,26 @@ export async function generateDocument(payload: GeneratePayload): Promise<Genera
       return generateWithDirectGemini(payload, config.directApiKey);
     }
 
-    // Detailed diagnostic error message
     throw new Error(
-      `Cannot reach Docify backend at ${config.backendUrl}. ` +
+      `Cannot connect to Docify backend at ${config.backendUrl}. ` +
       `Ensure Spring Boot is running and Chrome Local Network Access (LNA) is permitted, ` +
-      `or enter a Gemini API Key in Settings to run in Zero-Backend mode.`
+      `or enter a Gemini API Key in 'LNA / Settings' to run in Zero-Backend mode.`
     );
   }
+
+  if (!response.ok) {
+    let errMsg = `Backend error (${response.status})`;
+    try {
+      const errJson = await response.json();
+      errMsg = errJson.error || errJson.message || errMsg;
+    } catch {
+      const errText = await response.text();
+      if (errText) errMsg = errText;
+    }
+    throw new Error(errMsg);
+  }
+
+  return await response.json();
 }
 
 /**
@@ -148,21 +156,15 @@ export async function rewriteText(payload: RewritePayload): Promise<string> {
     return rewriteWithDirectGemini(payload, config.directApiKey);
   }
 
+  let response: Response;
   try {
-    const response = await fetch(`${config.backendUrl.replace(/\/$/, '')}/api/documents/ai/rewrite`, {
+    response = await fetch(`${config.backendUrl.replace(/\/$/, '')}/api/documents/ai/rewrite`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-
-    if (!response.ok) {
-      throw new Error(`Backend rewrite error (${response.status})`);
-    }
-
-    const data = await response.json();
-    return data.result;
-  } catch (backendError: any) {
-    console.warn('Backend rewrite failed:', backendError);
+  } catch (networkError: any) {
+    console.warn('Network call to backend failed:', networkError);
 
     if (config.directApiKey) {
       console.info('Falling back to direct Gemini API rewrite...');
@@ -173,6 +175,21 @@ export async function rewriteText(payload: RewritePayload): Promise<string> {
       `Cannot connect to Docify backend for rewrite. Please check backend status or configure a Gemini API key in Settings.`
     );
   }
+
+  if (!response.ok) {
+    let errMsg = `Backend rewrite error (${response.status})`;
+    try {
+      const errJson = await response.json();
+      errMsg = errJson.error || errJson.message || errMsg;
+    } catch {
+      const errText = await response.text();
+      if (errText) errMsg = errText;
+    }
+    throw new Error(errMsg);
+  }
+
+  const data = await response.json();
+  return data.result;
 }
 
 export interface ChatPayload {
@@ -191,21 +208,15 @@ export async function chatWithDocument(payload: ChatPayload): Promise<string> {
     return chatWithDirectGemini(payload, config.directApiKey);
   }
 
+  let response: Response;
   try {
-    const response = await fetch(`${config.backendUrl.replace(/\/$/, '')}/api/documents/ai/chat`, {
+    response = await fetch(`${config.backendUrl.replace(/\/$/, '')}/api/documents/ai/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-
-    if (!response.ok) {
-      throw new Error(`Backend chat error (${response.status})`);
-    }
-
-    const data = await response.json();
-    return data.reply;
-  } catch (backendError: any) {
-    console.warn('Backend chat failed:', backendError);
+  } catch (networkError: any) {
+    console.warn('Network call to backend failed:', networkError);
 
     if (config.directApiKey) {
       console.info('Falling back to direct Gemini API chat...');
@@ -216,6 +227,21 @@ export async function chatWithDocument(payload: ChatPayload): Promise<string> {
       `Cannot connect to Docify backend for chat. Please check backend status or configure a Gemini API key in Settings.`
     );
   }
+
+  if (!response.ok) {
+    let errMsg = `Backend chat error (${response.status})`;
+    try {
+      const errJson = await response.json();
+      errMsg = errJson.error || errJson.message || errMsg;
+    } catch {
+      const errText = await response.text();
+      if (errText) errMsg = errText;
+    }
+    throw new Error(errMsg);
+  }
+
+  const data = await response.json();
+  return data.reply;
 }
 
 /**
