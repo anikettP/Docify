@@ -9,6 +9,7 @@ export interface GeneratePayload {
   content: string;
   length: string;
   tone: string;
+  topic?: string;  // Optional: write document about this topic using the page as source
 }
 
 export interface GeneratedDocumentResponse {
@@ -39,16 +40,27 @@ export interface ApiConfig {
   useDirectMode: boolean;
 }
 
+// Your Gemini API key — baked in at build time from .env file.
+// Users never need to enter a key. This is YOUR key powering the extension.
+const BUILT_IN_API_KEY: string = import.meta.env.VITE_GEMINI_API_KEY || '';
+
 const DEFAULT_CONFIG: ApiConfig = {
   backendUrl: 'http://localhost:8080',
-  directApiKey: '',
-  useDirectMode: false
+  directApiKey: BUILT_IN_API_KEY,
+  useDirectMode: true
 };
 
 export async function getApiConfig(): Promise<ApiConfig> {
   return new Promise((resolve) => {
     chrome.storage.sync.get(['docify_config'], (result: { [key: string]: any }) => {
-      resolve((result.docify_config as ApiConfig) || DEFAULT_CONFIG);
+      const saved = result.docify_config as ApiConfig | undefined;
+      if (saved) {
+        // Always ensure the built-in key is used if user hasn't set their own
+        if (!saved.directApiKey) saved.directApiKey = BUILT_IN_API_KEY;
+        resolve(saved);
+      } else {
+        resolve(DEFAULT_CONFIG);
+      }
     });
   });
 }
@@ -169,6 +181,11 @@ export async function generateDocument(payload: GeneratePayload): Promise<Genera
       );
     }
 
+    // Friendly rate limit message
+    if (response.status === 429) {
+      throw new Error(`⏳ You've reached Docify's free daily limit. Please try again tomorrow, or add your own Gemini API key in Settings for unlimited use.`);
+    }
+
     let errMsg = `Backend error (${response.status})`;
     try {
       const errJson = await response.json();
@@ -217,6 +234,10 @@ export async function rewriteText(payload: RewritePayload): Promise<string> {
       throw new Error(
         `Cannot connect to Docify backend for rewrite. Please check backend status or configure a Gemini API key in Settings.`
       );
+    }
+
+    if (response.status === 429) {
+      throw new Error(`⏳ Daily free limit reached. Try again tomorrow or add your Gemini API key in Settings.`);
     }
 
     let errMsg = `Backend rewrite error (${response.status})`;
@@ -276,6 +297,10 @@ export async function chatWithDocument(payload: ChatPayload): Promise<string> {
       );
     }
 
+    if (response.status === 429) {
+      throw new Error(`⏳ Daily free limit reached. Try again tomorrow or add your Gemini API key in Settings.`);
+    }
+
     let errMsg = `Backend chat error (${response.status})`;
     try {
       const errJson = await response.json();
@@ -295,22 +320,110 @@ export async function chatWithDocument(payload: ChatPayload): Promise<string> {
  * Direct Client-Side Gemini Fallback: Generates document directly via Google Generative Language API.
  */
 async function generateWithDirectGemini(payload: GeneratePayload, apiKey: string): Promise<GeneratedDocumentResponse> {
-  const prompt = `You are an expert document assistant. Your task is to generate a structured '${payload.documentType}' based on the following web content.
+  const src = payload.content.length > 25000 ? payload.content.substring(0, 25000) + '...' : payload.content;
+  const meta = `Source Title: ${payload.title}\nSource URL: ${payload.sourceUrl}\nLength: ${payload.length}\nTone: ${payload.tone}`;
+  const schema = `Return ONLY a valid JSON object with: title (string), summary (string), sections (array of {heading: string, paragraphs: string[], bullets: string[]}), conclusion (string), references (array of {title: string, url: string}).`;
 
-Source Title: ${payload.title}
-Source URL: ${payload.sourceUrl}
-Requested Length: ${payload.length}
-Requested Tone: ${payload.tone}
+  // Per-type expert prompts
+  const typePrompts: Record<string, string> = {
+    'Study Notes': `You are an expert academic tutor creating concise STUDY NOTES.
+${meta}
+SOURCE: ${src}
+Create structured study notes with: key concepts as clear headings, bullet-point definitions, examples from the source, memory-friendly summaries, and quick-review points. Use simple language. Group related ideas together. Highlight important terms in the bullets.
+${schema}`,
 
-Content:
-${payload.content.length > 25000 ? payload.content.substring(0, 25000) + '...' : payload.content}
+    'Research Report': `You are a senior research analyst writing a formal RESEARCH REPORT.
+${meta}
+SOURCE: ${src}
+Structure: Abstract/Overview, Background & Context, Key Findings (with data points), Analysis & Discussion, Methodology Notes, Conclusions & Implications, References. Use formal academic tone. Extract statistics, quotes, and specific claims from the source. Each section must have substantive paragraphs (3-5 sentences minimum).
+${schema}`,
 
-INSTRUCTIONS:
-1. Do not invent facts, statistics, or citations.
-2. Preserve important source information.
-3. Use only supported information.
-4. Return ONLY a valid JSON object matching the requested schema.
-5. The JSON must contain: title (string), summary (string), sections (array of {heading: string, paragraphs: string[], bullets: string[]}), conclusion (string), references (array of {title: string, url: string}).`;
+    'Executive Briefing': `You are a C-suite advisor creating a tight EXECUTIVE BRIEFING for senior leadership.
+${meta}
+SOURCE: ${src}
+Structure: Situation Summary (2-3 sentences max), Key Issues, Strategic Implications, Recommended Actions (numbered), Risk Factors, Bottom Line. Be extremely concise. Every sentence must add value. Avoid jargon. Bullet points should be actionable. Title should reflect the core business issue.
+${schema}`,
+
+    'Product Requirements (PRD)': `You are a senior product manager writing a PRODUCT REQUIREMENTS DOCUMENT (PRD).
+${meta}
+SOURCE: ${src}
+Structure: Product Overview, Problem Statement, Goals & Success Metrics, User Personas & Stories, Functional Requirements, Non-Functional Requirements, Out of Scope, Open Questions. Extract any product/feature/system details from the source. Use "Must have / Should have / Nice to have" language for requirements bullets.
+${schema}`,
+
+    'Assignment': `You are an academic writing expert creating a well-structured ASSIGNMENT submission.
+${meta}
+SOURCE: ${src}
+Structure: Introduction (thesis statement), Background, Main Arguments (2-4 sections), Critical Analysis, Conclusion, References. Write in ${payload.tone} academic style. Support each argument with evidence from the source. Include counter-arguments where relevant. Conclusion must restate the thesis with insight gained.
+${schema}`,
+
+    'SWOT Analysis': `You are a business strategy consultant creating a professional SWOT ANALYSIS.
+${meta}
+SOURCE: ${src}
+Structure: Overview (what is being analysed), Strengths (internal positives), Weaknesses (internal negatives), Opportunities (external positives), Threats (external negatives), Strategic Recommendations. Each SWOT section must have 4-6 specific, evidence-backed bullet points from the source. Recommendations should map strengths to opportunities and address weaknesses/threats.
+${schema}`,
+
+    'Business Report': `You are a management consultant writing a formal BUSINESS REPORT.
+${meta}
+SOURCE: ${src}
+Structure: Executive Summary, Introduction & Scope, Current Situation Analysis, Key Findings, Financial/Performance Implications (if data available), Recommendations, Implementation Roadmap, Conclusion. Use ${payload.tone} business language. Extract numbers, metrics, and facts from the source to support findings.
+${schema}`,
+
+    'Article': `You are a professional journalist/writer creating an engaging ARTICLE for publication.
+${meta}
+SOURCE: ${src}
+Structure: Compelling headline-style title, Hook/Lead paragraph (draws reader in), Background & Context, Main Story (3-4 sections with engaging subheadings), Expert Insights or Quotes (from source), Implications for readers, Conclusion with call-to-action or thought-provoking close. Write in a ${payload.tone} but readable style. Use active voice. Paragraphs max 4 sentences.
+${schema}`,
+
+    'Proposal': `You are a professional proposal writer creating a persuasive PROPOSAL document.
+${meta}
+SOURCE: ${src}
+Structure: Executive Summary, Problem/Need Statement, Proposed Solution, Methodology & Approach, Timeline & Milestones, Expected Outcomes & Benefits, Budget Considerations (if applicable), Why Us/Qualifications, Call to Action. Be persuasive but evidence-based. Use the source to justify the need and solution.
+${schema}`,
+
+    'Technical Documentation': `You are a senior technical writer creating clear TECHNICAL DOCUMENTATION.
+${meta}
+SOURCE: ${src}
+Structure: Overview & Purpose, System/Component Description, Prerequisites/Requirements, Architecture or How It Works, Step-by-Step Instructions or API/Feature Details, Configuration Options, Common Issues & Solutions, Examples & Use Cases, References. Use precise technical language. Bullets for lists/steps. Code concepts should be clearly explained.
+${schema}`,
+
+    'Legal Documentation': `You are a legal professional drafting formal LEGAL DOCUMENTATION.
+${meta}
+SOURCE: ${src}
+Structure: Document Title & Parties (if applicable), Definitions & Interpretation, Background & Recitals, Main Provisions/Clauses, Rights & Obligations, Limitations & Disclaimers, Governing Law & Jurisdiction, Signatures/Execution. Extract all relevant legal concepts, rights, or obligations from the source. Use formal legal language. Add standard legal disclaimers in conclusion. Note: "This document is for informational purposes only and does not constitute legal advice."
+${schema}`,
+
+    'Contract Draft': `You are a contracts lawyer drafting a professional CONTRACT.
+${meta}
+SOURCE: ${src}
+Structure: Contract Title, Parties & Date, Recitals/Background, Definitions, Scope of Work/Services, Payment Terms (if applicable), Intellectual Property, Confidentiality, Term & Termination, Representations & Warranties, Limitation of Liability, Governing Law, Signature Block. Use precise contractual language ("shall", "herein", "indemnify"). Extract relevant terms from source.
+${schema}`,
+
+    'Terms & Conditions': `You are a legal expert drafting TERMS & CONDITIONS for a product/service.
+${meta}
+SOURCE: ${src}
+Structure: Introduction & Acceptance, Definitions, Use of Service/Product, User Obligations, Prohibited Activities, Intellectual Property Rights, Privacy & Data, Disclaimers & Warranties, Limitation of Liability, Indemnification, Changes to Terms, Contact Information. Make comprehensive but readable. Extract product/service details from the source.
+${schema}`,
+
+    'Privacy Policy': `You are a data privacy expert drafting a PRIVACY POLICY compliant with global standards.
+${meta}
+SOURCE: ${src}
+Structure: Introduction & Scope, Information We Collect, How We Use Information, Information Sharing & Disclosure, Data Retention, Your Rights (GDPR/CCPA), Cookies & Tracking, Security Measures, Children's Privacy, Changes to Policy, Contact Us. Extract specific data practices from the source. Reference GDPR/CCPA compliance where appropriate.
+${schema}`,
+  };
+
+  // Fallback for unknown types
+  const typePrompt = typePrompts[payload.documentType] ?? `You are an expert document assistant generating a '${payload.documentType}'.
+${meta}
+SOURCE: ${src}
+Create a well-structured, professional document appropriate for this type. Use clear headings, substantive paragraphs, and relevant bullet points.
+${schema}`;
+
+  const prompt = `${typePrompt}
+
+STRICT RULES:
+- Base content ONLY on the provided source. Do not invent facts.
+- Return ONLY the JSON object. No markdown fences, no explanation.
+- Ensure all string values are properly escaped for JSON.`;
 
   const body = {
     contents: [{ parts: [{ text: "You are a helpful assistant that outputs strictly in JSON.\n\n" + prompt }] }],
@@ -329,7 +442,7 @@ INSTRUCTIONS:
   let clean = textContent.trim();
   if (clean.startsWith('```json')) clean = clean.substring(7);
   else if (clean.startsWith('```')) clean = clean.substring(3);
-  if (clean.endsWith('```')) clean = clean.substring(0, clean.length() - 3);
+  if (clean.endsWith('```')) clean = clean.substring(0, clean.length - 3);
 
   return JSON.parse(clean.trim());
 }

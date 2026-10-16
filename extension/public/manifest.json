@@ -1,10 +1,21 @@
 {
   "manifest_version": 3,
-  "name": "Docify",
+  "name": "Docify — Web to Document Instantly",
   "version": "1.1.0",
-  "description": "Docify — AI Document Assistant. From web to work, instantly.",
+  "description": "Turn any webpage into a polished document instantly. Study notes, reports, contracts, articles & more — right from your browser.",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
   "action": {
-    "default_popup": "index.html"
+    "default_popup": "index.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    },
+    "default_title": "Docify — AI Document Creator"
   },
   "background": {
     "service_worker": "assets/background.js"
@@ -12,21 +23,21 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["assets/content.js"]
+      "js": ["assets/content.js"],
+      "run_at": "document_idle"
     }
   ],
   "permissions": [
     "activeTab",
     "scripting",
     "storage",
+    "tabs",
     "contextMenus"
   ],
   "host_permissions": [
-    "http://localhost:8080/*",
-    "http://127.0.0.1:8080/*",
     "https://generativelanguage.googleapis.com/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://localhost:8080 http://127.0.0.1:8080 https://generativelanguage.googleapis.com;"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://generativelanguage.googleapis.com;"
   }
 }

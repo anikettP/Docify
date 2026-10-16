@@ -8,10 +8,10 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        popup: resolve(__dirname, 'index.html'),
-        editor: resolve(__dirname, 'editor.html'),
-        content: resolve(__dirname, 'src/content/content.ts'),
-        background: resolve(__dirname, 'src/background/service-worker.ts'),
+        popup: resolve(import.meta.dirname, 'index.html'),
+        editor: resolve(import.meta.dirname, 'editor.html'),
+        content: resolve(import.meta.dirname, 'src/content/content.ts'),
+        background: resolve(import.meta.dirname, 'src/background/service-worker.ts'),
       },
       output: {
         entryFileNames: 'assets/[name].js',
@@ -21,3 +21,4 @@ export default defineConfig({
     },
   },
 })
+

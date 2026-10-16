@@ -28,3 +28,20 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     });
   }
 });
+
+// Handle messages from content script (floating badge)
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'OPEN_POPUP') {
+    // chrome.action.openPopup() works in MV3 service workers (Chrome 99+)
+    if (typeof chrome.action?.openPopup === 'function') {
+      chrome.action.openPopup().catch(() => {
+        // Fallback: open popup page as a new tab if openPopup fails
+        chrome.tabs.create({ url: chrome.runtime.getURL('index.html') });
+      });
+    } else {
+      chrome.tabs.create({ url: chrome.runtime.getURL('index.html') });
+    }
+    sendResponse({ ok: true });
+  }
+  return true;
+});

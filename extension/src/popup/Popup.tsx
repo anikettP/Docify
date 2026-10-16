@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { getDocumentHistory, type SavedDocument } from '../utils/storage';
 import {
   generateDocument,
@@ -7,6 +7,7 @@ import {
   saveApiConfig,
   type ApiConfig
 } from '../utils/apiClient';
+import './popup.css';
 
 interface TabItem {
   id: number;
@@ -15,22 +16,68 @@ interface TabItem {
   checked: boolean;
 }
 
+// Inline doc icon matching the floating badge — purple gradient box + white document SVG
+const DocIcon = () => (
+  <div style={{
+    width: 32, height: 32, borderRadius: 11,
+    background: 'linear-gradient(135deg, #7c3aed, #8b5cf6, #6366f1)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    boxShadow: '0 3px 10px rgba(99,60,220,0.32), inset 0 1px 0 rgba(255,255,255,0.22)'
+  }}>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+         stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="16" y1="13" x2="8" y2="13"/>
+      <line x1="16" y1="17" x2="8" y2="17"/>
+    </svg>
+  </div>
+);
+
+// Document type metadata: short description + tag
+const DOC_TYPE_META: Record<string, { desc: string; tag: string }> = {
+  'Study Notes':                { desc: 'Key concepts, bullet definitions & quick-review points', tag: 'Academic' },
+  'Research Report':            { desc: 'Formal findings, data analysis & methodology', tag: 'Academic' },
+  'Executive Briefing':         { desc: 'Concise situational summary for senior leadership', tag: 'Business' },
+  'Product Requirements (PRD)': { desc: 'Features, user stories & functional requirements', tag: 'Product' },
+  'Assignment':                 { desc: 'Thesis-driven academic essay with critical analysis', tag: 'Academic' },
+  'SWOT Analysis':              { desc: 'Strengths, Weaknesses, Opportunities & Threats', tag: 'Strategy' },
+  'Business Report':            { desc: 'Situation analysis, findings & recommendations', tag: 'Business' },
+  'Article':                    { desc: 'Engaging publication-ready article with hook & narrative', tag: 'Media' },
+  'Proposal':                   { desc: 'Persuasive proposal with solution & timeline', tag: 'Business' },
+  'Technical Documentation':    { desc: 'Architecture, setup guide & API/feature reference', tag: 'Tech' },
+  'Legal Documentation':        { desc: 'Formal legal clauses, provisions & disclaimers', tag: 'Legal' },
+  'Contract Draft':             { desc: 'Binding contract with parties, terms & obligations', tag: 'Legal' },
+  'Terms & Conditions':         { desc: 'User obligations, IP rights & liability limits', tag: 'Legal' },
+  'Privacy Policy':             { desc: 'GDPR/CCPA-aligned data collection & rights policy', tag: 'Legal' },
+};
+
+const SparkleIcon = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2L9.5 9.5 2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5z"/>
+  </svg>
+);
+
+const HistoryIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+  </svg>
+);
+
+// ──────────────────────────────────────────────────────────
+// Main Popup
+// ──────────────────────────────────────────────────────────
 export default function Popup() {
-  const [activeTab, setActiveTab] = useState<'create' | 'history' | 'settings'>('create');
+  const [activeTab, setActiveTab] = useState<'create' | 'history'>('create');
+  const [topic, setTopic] = useState('');
+
   const [pageInfo, setPageInfo] = useState<{
-    title: string;
-    url: string;
-    domain: string;
-    content: string;
-    hasSelection?: boolean;
-    selectedText?: string;
+    title: string; url: string; domain: string; content: string;
+    hasSelection?: boolean; selectedText?: string;
   } | null>(null);
   const [useSelectionOnly, setUseSelectionOnly] = useState(false);
-  
-  // Multi-tab research state
   const [multiTabMode, setMultiTabMode] = useState(false);
   const [windowTabs, setWindowTabs] = useState<TabItem[]>([]);
-
   const [docType, setDocType] = useState('Study Notes');
   const [length, setLength] = useState('Medium');
   const [tone, setTone] = useState('Professional');
@@ -38,40 +85,21 @@ export default function Popup() {
   const [error, setError] = useState('');
   const [history, setHistory] = useState<SavedDocument[]>([]);
 
-  // Settings & LNA diagnostics state
-  const [config, setConfig] = useState<ApiConfig>({
-    backendUrl: 'http://localhost:8080',
-    directApiKey: '',
-    useDirectMode: false
-  });
-  const [healthStatus, setHealthStatus] = useState<{ checked: boolean; ok: boolean; message: string }>({
-    checked: false,
-    ok: false,
-    message: ''
-  });
-  const [savingConfig, setSavingConfig] = useState(false);
-
   useEffect(() => {
-    // Get current tab and extract content
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const active = tabs[0];
       if (active?.id) {
         chrome.tabs.sendMessage(active.id, { action: 'EXTRACT_CONTENT' }, (response) => {
           if (chrome.runtime.lastError) {
-            console.log(chrome.runtime.lastError);
             setError('Please refresh the page to use Docify here.');
           } else if (response) {
             setPageInfo(response);
-            if (response.hasSelection) {
-              setUseSelectionOnly(true);
-            }
+            if (response.hasSelection) setUseSelectionOnly(true);
           }
         });
       }
     });
-
     loadHistory();
-    loadSettings();
     loadWindowTabs();
   }, []);
 
@@ -79,12 +107,7 @@ export default function Popup() {
     chrome.tabs.query({ currentWindow: true }, (tabs) => {
       const items: TabItem[] = tabs
         .filter(t => t.id && t.url && !t.url.startsWith('chrome://'))
-        .map((t, idx) => ({
-          id: t.id!,
-          title: t.title || 'Tab',
-          url: t.url || '',
-          checked: idx === 0 // default first / active tab checked
-        }));
+        .map((t, idx) => ({ id: t.id!, title: t.title || 'Tab', url: t.url || '', checked: idx === 0 }));
       setWindowTabs(items);
     });
   };
@@ -94,23 +117,6 @@ export default function Popup() {
     setHistory(items);
   };
 
-  const loadSettings = async () => {
-    const cfg = await getApiConfig();
-    setConfig(cfg);
-  };
-
-  const handleCheckHealth = async () => {
-    setHealthStatus({ checked: false, ok: false, message: 'Checking...' });
-    const res = await checkBackendHealth(config.backendUrl);
-    setHealthStatus({ checked: true, ok: res.ok, message: res.message });
-  };
-
-  const handleSaveSettings = async () => {
-    setSavingConfig(true);
-    await saveApiConfig(config);
-    setTimeout(() => setSavingConfig(false), 500);
-  };
-
   const toggleTabCheckbox = (tabId: number) => {
     setWindowTabs(prev => prev.map(t => t.id === tabId ? { ...t, checked: !t.checked } : t));
   };
@@ -118,7 +124,6 @@ export default function Popup() {
   const handleCreate = async () => {
     setLoading(true);
     setError('');
-
     try {
       let finalContent = '';
       let finalTitle = pageInfo?.title || 'Multi-Source Document';
@@ -126,33 +131,22 @@ export default function Popup() {
 
       if (multiTabMode) {
         const selectedTabs = windowTabs.filter(t => t.checked);
-        if (selectedTabs.length === 0) {
-          throw new Error('Please select at least one tab for multi-source synthesis.');
-        }
-
+        if (selectedTabs.length === 0) throw new Error('Please select at least one tab.');
         finalTitle = `Synthesized Dossier (${selectedTabs.length} Sources)`;
         finalSourceUrl = selectedTabs.map(t => t.url).join('; ');
-
-        // Gather content from selected tabs
         const tabContents: string[] = [];
         for (const tab of selectedTabs) {
           const tabData = await new Promise<{ title?: string; content?: string }>((resolve) => {
             chrome.tabs.sendMessage(tab.id, { action: 'EXTRACT_CONTENT' }, (res) => {
-              if (chrome.runtime.lastError || !res) {
-                resolve({ title: tab.title, content: '(Unable to read tab contents)' });
-              } else {
-                resolve(res);
-              }
+              if (chrome.runtime.lastError || !res) resolve({ title: tab.title, content: '(Unable to read tab contents)' });
+              else resolve(res);
             });
           });
-
           tabContents.push(`=== SOURCE: ${tabData.title || tab.title} (${tab.url}) ===\n${tabData.content || ''}`);
         }
-
         finalContent = tabContents.join('\n\n');
       } else {
         if (!pageInfo) throw new Error('No page content available.');
-
         if (useSelectionOnly && pageInfo.selectedText) {
           finalContent = `[USER HIGHLIGHTED SELECTION]:\n${pageInfo.selectedText}`;
           finalTitle = `Focus: ${pageInfo.title}`;
@@ -162,20 +156,17 @@ export default function Popup() {
         }
       }
 
-      const payload = {
+      const generatedData = await generateDocument({
         documentType: docType,
         title: finalTitle,
         sourceUrl: finalSourceUrl,
         content: finalContent,
         length: length.toLowerCase(),
-        tone: tone.toLowerCase()
-      };
+        tone: tone.toLowerCase(),
+        topic: topic.trim() || undefined
+      });
 
-      const generatedData = await generateDocument(payload);
-
-      // Store the result in local storage so the editor tab can pick it up
       chrome.storage.local.set({ docify_current_doc: generatedData }, () => {
-        // Open the editor in a new tab
         chrome.tabs.create({ url: chrome.runtime.getURL('editor.html') });
       });
     } catch (err: any) {
@@ -191,180 +182,89 @@ export default function Popup() {
     });
   };
 
+  // ── Main UI ──
   return (
     <div className="popup-container">
+      {/* Ambient blobs — position:absolute via inline style to prevent flex override */}
+      <div style={{ position: 'absolute', top: '45%', right: -40, width: 170, height: 170, background: 'radial-gradient(circle at center, rgba(249,168,212,0.28) 0%, rgba(253,200,230,0.14) 45%, transparent 70%)', borderRadius: '50%', pointerEvents: 'none', zIndex: 0, animation: 'floatBlob3 12s ease-in-out infinite' }} />
+
+      {/* Header */}
       <div className="header">
-        <h1 className="brand">DOCIFY</h1>
-        <p className="tagline">From web to work, instantly (Gemini AI Powered)</p>
+        <DocIcon />
+        <div className="header-text">
+          <div className="brand">DOCIFY</div>
+          <div className="tagline">From web to work, instantly</div>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', borderBottom: '1px solid #334155', paddingBottom: '8px' }}>
-        <button 
-          onClick={() => setActiveTab('create')}
-          style={{
-            flex: 1,
-            padding: '6px',
-            borderRadius: '6px',
-            border: 'none',
-            background: activeTab === 'create' ? '#6366f1' : 'transparent',
-            color: '#fff',
-            cursor: 'pointer',
-            fontSize: '11px',
-            fontWeight: 600
-          }}
-        >
-          New Doc
-        </button>
-        <button 
-          onClick={() => { setActiveTab('history'); loadHistory(); }}
-          style={{
-            flex: 1,
-            padding: '6px',
-            borderRadius: '6px',
-            border: 'none',
-            background: activeTab === 'history' ? '#6366f1' : 'transparent',
-            color: '#fff',
-            cursor: 'pointer',
-            fontSize: '11px',
-            fontWeight: 600
-          }}
-        >
-          Recent ({history.length})
-        </button>
-        <button 
-          onClick={() => { setActiveTab('settings'); handleCheckHealth(); }}
-          style={{
-            flex: 1,
-            padding: '6px',
-            borderRadius: '6px',
-            border: 'none',
-            background: activeTab === 'settings' ? '#6366f1' : 'transparent',
-            color: '#fff',
-            cursor: 'pointer',
-            fontSize: '11px',
-            fontWeight: 600
-          }}
-        >
-          LNA / Settings
-        </button>
-      </div>
-
-      {error && (
-        <div className="error-box" style={{marginBottom: '14px', fontSize: '12px', lineHeight: '1.4'}}>
-          {error}
+      {/* Source card — shown ABOVE tabs always */}
+      {!multiTabMode ? (
+        !pageInfo && !error ? (
+          <div className="source-mini-loading">
+            <span className="pulse-dot" />
+            Reading page...
+          </div>
+        ) : pageInfo ? (
+          <div className="source-banner">
+            <div className="source-banner-left">
+              <span className="pulse-dot" />
+              <div>
+                <div className="source-banner-title">{pageInfo.title || 'Unknown Title'}</div>
+                <div className="source-banner-domain">{pageInfo.domain || 'unknown.domain'}</div>
+              </div>
+            </div>
+            {pageInfo.hasSelection && (
+              <label className="source-selection-toggle">
+                <input
+                  type="checkbox"
+                  checked={useSelectionOnly}
+                  onChange={e => setUseSelectionOnly(e.target.checked)}
+                />
+                <span>Selection</span>
+              </label>
+            )}
+          </div>
+        ) : null
+      ) : (
+        <div className="source-banner source-banner-multi">
+          <span className="pulse-dot pulse-dot-blue" />
+          <span className="source-banner-title">
+            {windowTabs.filter(t => t.checked).length} tabs selected
+          </span>
         </div>
       )}
 
-      {activeTab === 'settings' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '12px' }}>
-          <div style={{ padding: '10px', borderRadius: '8px', background: '#1e293b', border: '1px solid #334155' }}>
-            <div style={{ fontWeight: 600, color: '#f8fafc', marginBottom: '6px' }}>Local Network Access (LNA) Status</div>
-            <div style={{ color: '#94a3b8', marginBottom: '8px', fontSize: '11px' }}>
-              Chrome LNA Phase 3 checks extension access to local servers.
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <button
-                onClick={handleCheckHealth}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: '4px',
-                  border: '1px solid #6366f1',
-                  background: '#6366f1',
-                  color: '#fff',
-                  cursor: 'pointer',
-                  fontSize: '11px'
-                }}
-              >
-                Test Connection
-              </button>
-              {healthStatus.checked && (
-                <span style={{ color: healthStatus.ok ? '#4ade80' : '#f87171', fontWeight: 600, fontSize: '11px' }}>
-                  {healthStatus.ok ? '🟢 Online & LNA Ready' : '🔴 Server Unavailable'}
-                </span>
-              )}
-            </div>
-            {healthStatus.message && (
-              <div style={{ fontSize: '11px', color: healthStatus.ok ? '#94a3b8' : '#fca5a5' }}>
-                {healthStatus.message}
-              </div>
-            )}
-          </div>
+      {/* Tabs — only Create + History */}
+      <div className="tabs">
+        <button
+          id="tab-create"
+          className={`tab-btn ${activeTab === 'create' ? 'active' : ''}`}
+          onClick={() => setActiveTab('create')}
+        >
+          <SparkleIcon size={12} /> Create
+        </button>
+        <button
+          id="tab-history"
+          className={`tab-btn ${activeTab === 'history' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('history'); loadHistory(); }}
+        >
+          <HistoryIcon /> Recent ({history.length})
+        </button>
+      </div>
 
-          <div style={{ padding: '10px', borderRadius: '8px', background: '#1e293b', border: '1px solid #334155' }}>
-            <div style={{ fontWeight: 600, color: '#f8fafc', marginBottom: '6px' }}>Zero-Backend Direct Mode</div>
-            <div style={{ color: '#94a3b8', marginBottom: '8px', fontSize: '11px' }}>
-              Bypass local network calls completely by using your Gemini API Key directly.
-            </div>
-            <div style={{ marginBottom: '8px' }}>
-              <label style={{ display: 'block', color: '#cbd5e1', marginBottom: '4px', fontSize: '11px' }}>
-                Gemini API Key:
-              </label>
-              <input
-                type="password"
-                placeholder="AIzaSy..."
-                value={config.directApiKey}
-                onChange={(e) => setConfig({ ...config, directApiKey: e.target.value })}
-                style={{
-                  width: '100%',
-                  padding: '6px',
-                  borderRadius: '4px',
-                  border: '1px solid #475569',
-                  background: '#0f172a',
-                  color: '#fff',
-                  fontSize: '11px',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#cbd5e1', cursor: 'pointer', fontSize: '11px' }}>
-              <input
-                type="checkbox"
-                checked={config.useDirectMode}
-                onChange={(e) => setConfig({ ...config, useDirectMode: e.target.checked })}
-              />
-              Force Direct Client Mode (Serverless)
-            </label>
-          </div>
+      {/* Error */}
+      {error && <div className="error-box">{error}</div>}
 
-          <button
-            onClick={handleSaveSettings}
-            style={{
-              padding: '8px',
-              borderRadius: '6px',
-              border: 'none',
-              background: '#22c55e',
-              color: '#fff',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '12px'
-            }}
-          >
-            {savingConfig ? 'Saved!' : 'Save Settings'}
-          </button>
-        </div>
-      ) : activeTab === 'history' ? (
-        <div className="history-box" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+      {/* ── HISTORY TAB ── */}
+      {activeTab === 'history' && (
+        <div className="history-box">
           {history.length === 0 ? (
-            <div style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '16px' }}>
-              No recent documents saved yet.
-            </div>
+            <div className="loading">No documents yet. Create your first one!</div>
           ) : (
             history.map((item) => (
-              <div 
-                key={item.id} 
-                onClick={() => openDocumentFromHistory(item)}
-                style={{
-                  padding: '10px',
-                  borderRadius: '8px',
-                  background: '#1e293b',
-                  marginBottom: '8px',
-                  cursor: 'pointer',
-                  border: '1px solid #334155',
-                  transition: 'background 0.2s'
-                }}
-              >
-                <div style={{ fontWeight: 600, color: '#f8fafc', fontSize: '13px' }}>{item.title}</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
+              <div key={item.id} className="history-item" onClick={() => openDocumentFromHistory(item)}>
+                <div className="history-item-title">{item.title}</div>
+                <div className="history-item-meta">
                   <span>{item.documentType}</span>
                   <span>{new Date(item.createdAt).toLocaleDateString()}</span>
                 </div>
@@ -372,98 +272,22 @@ export default function Popup() {
             ))
           )}
         </div>
-      ) : (
+      )}
+
+      {/* ── CREATE TAB ── */}
+      {activeTab === 'create' && (
         <>
-          {/* Mode Switcher: Single Page vs Multi-Tab Research */}
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-            <button
-              onClick={() => setMultiTabMode(false)}
-              style={{
-                flex: 1,
-                padding: '5px',
-                borderRadius: '6px',
-                border: '1px solid',
-                borderColor: !multiTabMode ? '#6366f1' : '#334155',
-                background: !multiTabMode ? '#312e81' : '#1e293b',
-                color: '#fff',
-                fontSize: '11px',
-                cursor: 'pointer',
-                fontWeight: 600
-              }}
-            >
-              📄 Current Page
-            </button>
-            <button
-              onClick={() => { setMultiTabMode(true); loadWindowTabs(); }}
-              style={{
-                flex: 1,
-                padding: '5px',
-                borderRadius: '6px',
-                border: '1px solid',
-                borderColor: multiTabMode ? '#6366f1' : '#334155',
-                background: multiTabMode ? '#312e81' : '#1e293b',
-                color: '#fff',
-                fontSize: '11px',
-                cursor: 'pointer',
-                fontWeight: 600
-              }}
-            >
-              📑 Multi-Tab Dossier
-            </button>
-          </div>
-
-          {!multiTabMode ? (
-            !pageInfo && !error ? (
-              <div className="loading">Reading webpage...</div>
-            ) : pageInfo ? (
-              <div className="content-box">
-                <div className="current-page">
-                  <span className="label">Current Source</span>
-                  <hr />
-                  <div className="page-title">{pageInfo.title || 'Unknown Title'}</div>
-                  <div className="page-domain">{pageInfo.domain || 'unknown.domain'}</div>
-                </div>
-
-                {/* Highlight Selection Badge */}
-                {pageInfo.hasSelection && (
-                  <div style={{
-                    margin: '8px 0',
-                    padding: '8px',
-                    borderRadius: '6px',
-                    background: '#312e81',
-                    border: '1px solid #6366f1',
-                    fontSize: '11px'
-                  }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: '#e0e7ff', fontWeight: 600 }}>
-                      <input
-                        type="checkbox"
-                        checked={useSelectionOnly}
-                        onChange={(e) => setUseSelectionOnly(e.target.checked)}
-                      />
-                      <span>✨ Use Highlighted Selection Only</span>
-                    </label>
-                    <div style={{ color: '#c7d2fe', fontSize: '10px', marginTop: '3px' }}>
-                      "{pageInfo.selectedText?.substring(0, 80)}..."
-                    </div>
-                  </div>
-                )}
+          {/* Multi-tab checklist — only in multi-tab mode */}
+          {multiTabMode && (
+            <div className="glass-card" style={{ marginBottom: 10 }}>
+              <div className="label" style={{ marginBottom: 8 }}>
+                Select Tabs ({windowTabs.filter(t => t.checked).length} selected)
               </div>
-            ) : null
-          ) : (
-            /* Multi-Tab Selector View */
-            <div style={{ background: '#1e293b', padding: '10px', borderRadius: '8px', marginBottom: '12px', border: '1px solid #334155' }}>
-              <div style={{ fontSize: '11px', fontWeight: 600, color: '#f8fafc', marginBottom: '6px' }}>
-                Select Tabs to Synthesize ({windowTabs.filter(t => t.checked).length} selected)
-              </div>
-              <div style={{ maxHeight: '120px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {windowTabs.map((tab) => (
-                  <label key={tab.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#cbd5e1', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={tab.checked}
-                      onChange={() => toggleTabCheckbox(tab.id)}
-                    />
-                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '280px' }}>
+              <div className="multitab-list">
+                {windowTabs.map(tab => (
+                  <label key={tab.id} className="multitab-item">
+                    <input type="checkbox" checked={tab.checked} onChange={() => toggleTabCheckbox(tab.id)} />
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 280 }}>
                       {tab.title}
                     </span>
                   </label>
@@ -472,36 +296,67 @@ export default function Popup() {
             </div>
           )}
 
-          {/* Form Options */}
-          <div className="content-box" style={{ marginTop: '4px' }}>
-            <div className="form-group">
-              <label>Document Template / Type</label>
-              <select value={docType} onChange={e => setDocType(e.target.value)}>
-                <option value="Research Report">Research Report</option>
-                <option value="Product Requirements (PRD)">Product Requirements (PRD)</option>
+          {/* Mode Switcher */}
+          <div className="mode-switcher">
+            <button
+              id="mode-single-page"
+              className={`mode-btn ${!multiTabMode ? 'active' : ''}`}
+              onClick={() => setMultiTabMode(false)}
+            >
+              Current Page
+            </button>
+            <button
+              id="mode-multi-tab"
+              className={`mode-btn ${multiTabMode ? 'active' : ''}`}
+              onClick={() => { setMultiTabMode(true); loadWindowTabs(); }}
+            >
+              Multi-Tab Document
+            </button>
+          </div>
+
+
+          {/* Form: Document Type with description preview */}
+          <div className="glass-card" style={{ marginBottom: 0 }}>
+            <div className="form-group" style={{ marginBottom: 10 }}>
+              <label>Document Type</label>
+              <select id="doc-type-select" value={docType} onChange={e => setDocType(e.target.value)}>
                 <option value="Study Notes">Study Notes</option>
-                <option value="Executive Briefing">Executive Briefing</option>
+                <option value="Research Report">Research Report</option>
                 <option value="Assignment">Assignment</option>
-                <option value="SWOT Analysis">SWOT Analysis</option>
+                <option value="Executive Briefing">Executive Briefing</option>
                 <option value="Business Report">Business Report</option>
-                <option value="Article">Article</option>
+                <option value="SWOT Analysis">SWOT Analysis</option>
                 <option value="Proposal">Proposal</option>
+                <option value="Product Requirements (PRD)">Product Requirements (PRD)</option>
                 <option value="Technical Documentation">Technical Documentation</option>
+                <option value="Article">Article</option>
+                <option value="Legal Documentation">Legal Documentation</option>
+                <option value="Contract Draft">Contract Draft</option>
+                <option value="Terms & Conditions">Terms &amp; Conditions</option>
+                <option value="Privacy Policy">Privacy Policy</option>
               </select>
             </div>
 
+            {/* Type description pill */}
+            {DOC_TYPE_META[docType] && (
+              <div className="type-desc-pill">
+                <span className="type-tag">{DOC_TYPE_META[docType].tag}</span>
+                <span className="type-desc">{DOC_TYPE_META[docType].desc}</span>
+              </div>
+            )}
+
             <div className="row">
               <div className="form-group half">
-                <label>Length:</label>
-                <select value={length} onChange={e => setLength(e.target.value)}>
+                <label>Length</label>
+                <select id="length-select" value={length} onChange={e => setLength(e.target.value)}>
                   <option value="Short">Short</option>
                   <option value="Medium">Medium</option>
                   <option value="Long">Long</option>
                 </select>
               </div>
               <div className="form-group half">
-                <label>Tone:</label>
-                <select value={tone} onChange={e => setTone(e.target.value)}>
+                <label>Tone</label>
+                <select id="tone-select" value={tone} onChange={e => setTone(e.target.value)}>
                   <option value="Professional">Professional</option>
                   <option value="Academic">Academic</option>
                   <option value="Executive">Executive</option>
@@ -510,12 +365,17 @@ export default function Popup() {
               </div>
             </div>
 
-            <button 
-              className="create-btn" 
-              onClick={handleCreate} 
+            <button
+              id="create-doc-btn"
+              className="create-btn"
+              onClick={handleCreate}
               disabled={loading || (!pageInfo && !multiTabMode)}
             >
-              {loading ? 'Synthesizing with Gemini...' : multiTabMode ? 'Synthesize Multi-Tab Dossier' : 'Create with Docify'}
+              {loading ? (
+                <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'spin 0.9s linear infinite', flexShrink: 0 }}><circle cx="12" cy="12" r="10" strokeOpacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" /></svg> Synthesizing…</>
+              ) : (
+                <><SparkleIcon size={13} /> {multiTabMode ? 'Create Document' : 'Create Document'}</>
+              )}
             </button>
           </div>
         </>
@@ -523,3 +383,4 @@ export default function Popup() {
     </div>
   );
 }
+

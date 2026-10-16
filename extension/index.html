@@ -5,11 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Docify Popup</title>
     <style>
-      body {
-        margin: 0;
-        width: 350px;
-        min-height: 400px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      *, *::before, *::after { box-sizing: border-box; }
+      html, body {
+        margin: 0; padding: 0;
+        width: 420px;
+        min-height: 520px;
+        border-radius: 32px;
+        overflow: hidden;
+        /* Light lavender ambient — makes container curved edges crisp */
+        background: linear-gradient(145deg,
+          #ede9fe 0%,
+          #f5f3ff 25%,
+          #ffffff 55%,
+          #f0f4ff 80%,
+          #ede9fe 100%
+        );
       }
     </style>
   </head>

@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: docify-backend
+    runtime: java
+    region: oregon
+    plan: free
+    buildCommand: "./mvnw clean package -DskipTests"
+    startCommand: "java -jar target/backend-0.0.1-SNAPSHOT.jar"
+    healthCheckPath: /api/health
+    envVars:
+      - key: AI_API_KEY
+        sync: false        # You will paste this manually in Render dashboard
+      - key: JAVA_VERSION
+        value: "17"
