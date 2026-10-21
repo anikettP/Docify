@@ -7,6 +7,7 @@ import {
   saveApiConfig,
   type ApiConfig
 } from '../utils/apiClient';
+import { DEFAULT_LANGUAGE_CODE, SUPPORTED_LANGUAGES } from '../utils/languages';
 import './popup.css';
 
 interface TabItem {
@@ -81,6 +82,7 @@ export default function Popup() {
   const [docType, setDocType] = useState('Study Notes');
   const [length, setLength] = useState('Medium');
   const [tone, setTone] = useState('Professional');
+  const [language, setLanguage] = useState(DEFAULT_LANGUAGE_CODE);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [history, setHistory] = useState<SavedDocument[]>([]);
@@ -163,7 +165,8 @@ export default function Popup() {
         content: finalContent,
         length: length.toLowerCase(),
         tone: tone.toLowerCase(),
-        topic: topic.trim() || undefined
+        topic: topic.trim() || undefined,
+        language: SUPPORTED_LANGUAGES.find(item => item.code === language)?.name || 'English'
       });
 
       chrome.storage.local.set({ docify_current_doc: generatedData }, () => {
@@ -365,6 +368,31 @@ export default function Popup() {
               </div>
             </div>
 
+            <div className="form-group language-group">
+              <label htmlFor="language-select">Generate in</label>
+              <select
+                id="language-select"
+                value={language}
+                onChange={e => setLanguage(e.target.value)}
+              >
+                <optgroup label="Popular">
+                  {SUPPORTED_LANGUAGES.filter(item => item.group === 'Popular').map(item => (
+                    <option key={item.code} value={item.code}>{item.name} · {item.nativeName}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Indian languages">
+                  {SUPPORTED_LANGUAGES.filter(item => item.group === 'Indian languages').map(item => (
+                    <option key={item.code} value={item.code}>{item.name} · {item.nativeName}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="More languages">
+                  {SUPPORTED_LANGUAGES.filter(item => item.group === 'All languages').map(item => (
+                    <option key={item.code} value={item.code}>{item.name} · {item.nativeName}</option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
+
             <button
               id="create-doc-btn"
               className="create-btn"
@@ -380,6 +408,22 @@ export default function Popup() {
           </div>
         </>
       )}
+    <footer className="popup-footer">
+      <div className="footer-brand">
+        <img src="/favicon.svg" alt="Docify" className="footer-favicon" />
+        <span className="footer-version">Docify v1.1</span>
+      </div>
+      <div className="footer-links">
+        <a href="https://github.com/anikettP/Docify/issues/new?template=bug_report.md&title=Bug%3A%20" target="_blank" rel="noopener noreferrer" className="footer-link" id="report-bug-btn" aria-label="Report a bug on GitHub">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Report Bug
+        </a>
+        <span className="footer-sep">&middot;</span>
+        <a href="https://buymeacoffee.com/aniketpate1" target="_blank" rel="noopener noreferrer" className="footer-link" id="sponsor-btn">
+          &#9749; Sponsor
+        </a>
+      </div>
+    </footer>
     </div>
   );
 }

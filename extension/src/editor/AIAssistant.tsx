@@ -3,6 +3,7 @@ import { Editor } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import { Sparkles, Wand2, Scissors, Expand, Check, Loader2 } from 'lucide-react';
 import { rewriteText } from '../utils/apiClient';
+import { DEFAULT_LANGUAGE_CODE, SUPPORTED_LANGUAGES } from '../utils/languages';
 
 interface AIAssistantProps {
   editor: Editor | null;
@@ -11,6 +12,7 @@ interface AIAssistantProps {
 export default function AIAssistant({ editor }: AIAssistantProps) {
   const [loading, setLoading] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
+  const [targetLanguage, setTargetLanguage] = useState(DEFAULT_LANGUAGE_CODE);
 
   if (!editor) {
     return null;
@@ -32,7 +34,8 @@ export default function AIAssistant({ editor }: AIAssistantProps) {
         operation: action,
         selectedText,
         instruction: instruction || '',
-        documentContext: editor.getText().substring(0, 500) // snippet context
+        documentContext: editor.getText().substring(0, 500), // snippet context
+        targetLanguage: action === 'translate' ? SUPPORTED_LANGUAGES.find(item => item.code === targetLanguage)?.name : undefined
       });
       
       // Replace selected text with AI result
@@ -73,6 +76,21 @@ export default function AIAssistant({ editor }: AIAssistantProps) {
             <button onClick={() => handleAIAction('expand')}>
               <Expand size={14} /> Expand
             </button>
+            <button onClick={() => handleAIAction('translate')}>
+              <Sparkles size={14} /> Translate
+            </button>
+          </div>
+          <div className="ai-language-picker">
+            <label htmlFor="translate-language">Translate to</label>
+            <select
+              id="translate-language"
+              value={targetLanguage}
+              onChange={e => setTargetLanguage(e.target.value)}
+            >
+              {SUPPORTED_LANGUAGES.map(language => (
+                <option key={language.code} value={language.code}>{language.name} · {language.nativeName}</option>
+              ))}
+            </select>
           </div>
           <div className="ai-custom-prompt">
             <input 

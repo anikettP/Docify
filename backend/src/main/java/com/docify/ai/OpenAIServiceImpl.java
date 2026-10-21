@@ -21,13 +21,13 @@ public class OpenAIServiceImpl implements AIService {
     @Value("${docify.ai.api-key}")
     private String apiKey;
 
-    @Value("${docify.ai.model:gemini-2.5-flash-lite}")
+    @Value("${docify.ai.model:gemini-flash-lite-latest}")
     private String model;
 
     @Value("${docify.ai.base-url:https://generativelanguage.googleapis.com/v1beta}")
     private String baseUrl;
 
-    @Value("${docify.ai.fallback-models:gemini-2.5-flash,gemini-flash-latest,gemini-2.5-pro}")
+    @Value("${docify.ai.fallback-models:gemini-3.8-flash,gemini-3.1-flash-lite,gemini-flash-latest}")
     private String fallbackModelsStr;
 
     private final PromptTemplateService promptTemplateService;
@@ -55,8 +55,8 @@ public class OpenAIServiceImpl implements AIService {
                 }
             }
         }
-        if (!list.contains("gemini-2.5-flash-lite")) list.add("gemini-2.5-flash-lite");
-        if (!list.contains("gemini-2.5-flash")) list.add("gemini-2.5-flash");
+        if (!list.contains("gemini-flash-lite-latest")) list.add("gemini-flash-lite-latest");
+        if (!list.contains("gemini-3.8-flash")) list.add("gemini-3.8-flash");
         return list;
     }
 

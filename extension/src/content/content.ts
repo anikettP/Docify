@@ -140,11 +140,21 @@ function injectFloatingBadge(): void {
         0 8px 32px rgba(100, 60, 220, 0.18),
         0 2px 8px rgba(0, 0, 0, 0.08),
         inset 0 1px 0 rgba(255, 255, 255, 1);
-      cursor: pointer;
+      cursor: grab;
       transition: all 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
       user-select: none;
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
       animation: docifySlideIn 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    }
+
+    #docify-float-badge.dragging {
+      cursor: grabbing;
+      transition: box-shadow 0.15s ease;
+      box-shadow:
+        0 0 0 0.5px rgba(167, 139, 250, 0.40),
+        0 18px 50px rgba(100, 60, 220, 0.32),
+        0 6px 18px rgba(0, 0, 0, 0.14),
+        inset 0 1px 0 rgba(255, 255, 255, 1);
     }
 
     @keyframes docifySlideIn {
@@ -298,9 +308,51 @@ function injectFloatingBadge(): void {
   badge.appendChild(label);
   badge.appendChild(dismiss);
 
-  // ── Badge click → directly open the extension popup ──
+  // ── Drag-to-reposition logic ──
+  let isDragging = false;
+  let dragStartY = 0;
+  let badgeStartBottom = 28;
+  let hasMoved = false;
+
+  // Restore saved position
+  chrome.storage.local.get(['docify_badge_bottom'], (result: { [key: string]: any }) => {
+    if (result.docify_badge_bottom != null) {
+      badge.style.bottom = result.docify_badge_bottom + 'px';
+      badgeStartBottom = result.docify_badge_bottom;
+    }
+  });
+
+  badge.addEventListener('mousedown', (e: MouseEvent) => {
+    if ((e.target as HTMLElement).id === 'docify-float-dismiss') return;
+    isDragging = true;
+    hasMoved = false;
+    dragStartY = e.clientY;
+    badgeStartBottom = parseInt(badge.style.bottom || '28', 10);
+    badge.classList.add('dragging');
+    badge.style.animation = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e: MouseEvent) => {
+    if (!isDragging) return;
+    const deltaY = dragStartY - e.clientY;
+    if (Math.abs(deltaY) > 4) hasMoved = true;
+    const newBottom = Math.max(10, Math.min(window.innerHeight - 60, badgeStartBottom + deltaY));
+    badge.style.bottom = newBottom + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!isDragging) return;
+    isDragging = false;
+    badge.classList.remove('dragging');
+    const finalBottom = parseInt(badge.style.bottom || '28', 10);
+    chrome.storage.local.set({ docify_badge_bottom: finalBottom });
+  });
+
+  // ── Badge click → open popup (only if not dragged) ──
   badge.addEventListener('click', (e) => {
     e.stopPropagation();
+    if (hasMoved) return;
     chrome.runtime.sendMessage({ action: 'OPEN_POPUP' });
   });
 

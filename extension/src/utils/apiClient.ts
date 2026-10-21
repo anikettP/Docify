@@ -10,11 +10,13 @@ export interface GeneratePayload {
   length: string;
   tone: string;
   topic?: string;  // Optional: write document about this topic using the page as source
+  language?: string;
 }
 
 export interface GeneratedDocumentResponse {
   title: string;
   summary: string;
+  language?: string;
   sections: Array<{
     heading: string;
     paragraphs: string[];
@@ -32,6 +34,7 @@ export interface RewritePayload {
   selectedText: string;
   instruction?: string;
   documentContext: string;
+  targetLanguage?: string;
 }
 
 export interface ApiConfig {
@@ -112,7 +115,7 @@ export async function checkBackendHealth(baseUrl?: string): Promise<{ ok: boolea
  * Helper to call Direct Gemini API with multi-model fallback.
  */
 async function callGeminiDirectWithFallback(apiKey: string, body: any): Promise<any> {
-  const models = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest'];
+  const models = ['gemini-flash-lite-latest', 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
   let lastErrText = '';
 
   for (const model of models) {
@@ -321,7 +324,7 @@ export async function chatWithDocument(payload: ChatPayload): Promise<string> {
  */
 async function generateWithDirectGemini(payload: GeneratePayload, apiKey: string): Promise<GeneratedDocumentResponse> {
   const src = payload.content.length > 25000 ? payload.content.substring(0, 25000) + '...' : payload.content;
-  const meta = `Source Title: ${payload.title}\nSource URL: ${payload.sourceUrl}\nLength: ${payload.length}\nTone: ${payload.tone}`;
+  const meta = `Source Title: ${payload.title}\nSource URL: ${payload.sourceUrl}\nLength: ${payload.length}\nTone: ${payload.tone}\nOutput Language: ${payload.language || 'English'}`;
   const schema = `Return ONLY a valid JSON object with: title (string), summary (string), sections (array of {heading: string, paragraphs: string[], bullets: string[]}), conclusion (string), references (array of {title: string, url: string}).`;
 
   // Per-type expert prompts
@@ -422,6 +425,7 @@ ${schema}`;
 
 STRICT RULES:
 - Base content ONLY on the provided source. Do not invent facts.
+- Write the complete document in ${payload.language || 'English'}, including the title, headings, summary, paragraphs, bullets, conclusion, and reference titles.
 - Return ONLY the JSON object. No markdown fences, no explanation.
 - Ensure all string values are properly escaped for JSON.`;
 
@@ -454,6 +458,7 @@ async function rewriteWithDirectGemini(payload: RewritePayload, apiKey: string):
   const prompt = `You are Docify's professional editing assistant. You must modify the SELECTED TEXT based on the requested operation.
 
 OPERATION: ${payload.operation}
+${payload.targetLanguage ? `TARGET LANGUAGE: ${payload.targetLanguage}\n` : ''}
 ${payload.instruction ? `CUSTOM INSTRUCTION: ${payload.instruction}\n` : ''}
 DOCUMENT CONTEXT (for reference only):
 ${payload.documentContext}
@@ -463,6 +468,7 @@ ${payload.selectedText}
 
 RULES:
 - Return ONLY the modified text.
+- If a target language is provided, write the complete result in that language.
 - Do not include explanations or markdown formatting like \`\`\` unless returning a code block.
 - Preserve the core meaning but apply the requested style/operation.`;
 
